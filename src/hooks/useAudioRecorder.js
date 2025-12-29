@@ -9,23 +9,25 @@ const useAudioRecorder = (onTranscriptReceived) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // 1. Start the Deepgram Connection
+      // 1. Start Deepgram (Don't await it!)
       startDeepgramSocket(onTranscriptReceived);
 
+      // 2. Start MediaRecorder immediately
       mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      
+
       mediaRecorderRef.current.addEventListener("dataavailable", (event) => {
         if (event.data.size > 0) {
-          // 2. Send audio chunks to Deepgram Service
+          // Send to our new smart function that handles the queue
           sendAudioToDeepgram(event.data);
         }
       });
 
+      // 3. Start immediately so we catch the Header
       mediaRecorderRef.current.start(250); 
       setIsRecording(true);
-      
+
     } catch (error) {
-      console.error("Error accessing microphone:", error);
+      console.error("Error starting microphone:", error);
     }
   };
 
@@ -34,7 +36,6 @@ const useAudioRecorder = (onTranscriptReceived) => {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
     }
-    // 3. Close connection
     closeDeepgramSocket();
     setIsRecording(false);
   };
