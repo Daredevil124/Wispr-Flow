@@ -4,14 +4,21 @@ const DEEPGRAM_API_KEY = import.meta.env.VITE_DEEPGRAM_API_KEY;
 
 let deepgramConnection = null;
 let audioQueue = [];
+let keepAliveInterval = null;
 
 export const startDeepgramSocket = (onTranscript) => {
   // 1. NUCLEAR CLEANUP: If a connection exists, kill it immediately.
   if (deepgramConnection) {
     console.log("⚠️ Found hanging connection. Cleaning up...");
-    deepgramConnection.removeAllListeners(); // Stop listening to the old socket
-    deepgramConnection.finish(); // Send close frame
+    deepgramConnection.removeAllListeners();
+    deepgramConnection.finish();
     deepgramConnection = null;
+  }
+  
+  // Clear keepalive interval
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    keepAliveInterval = null;
   }
   
   // 2. Clear the queue so old audio doesn't leak into new session
@@ -24,26 +31,46 @@ export const startDeepgramSocket = (onTranscript) => {
     model: "nova-2",
     language: "en-US",
     smart_format: true,
+    interim_results: true, // ✅ CRITICAL: Enable interim results for lower latency
+    endpointing: 300, // ✅ Faster endpoint detection (default is 1000ms)
+    utterance_end_ms: 1000, // ✅ Shorter utterance end detection
+    vad_events: true, // ✅ Get voice activity detection events
+    encoding: "linear16", // ✅ More efficient encoding
+    sample_rate: 16000, // ✅ Standard sample rate for speech
   });
 
   deepgramConnection.on(LiveTranscriptionEvents.Open, () => {
     console.log("✅ Deepgram WebSocket OPENED! Flushing queue...");
+    
+    // Start keepalive to prevent connection timeout
+    keepAliveInterval = setInterval(() => {
+      if (deepgramConnection && deepgramConnection.getReadyState() === 1) {
+        // Send keepalive message
+        deepgramConnection.keepAlive();
+      }
+    }, 5000); // Every 5 seconds
+    
     // Flush buffered audio
     while (audioQueue.length > 0) {
       const chunk = audioQueue.shift();
-      sendAudioToDeepgram(chunk); // Reuse the send function
+      sendAudioToDeepgram(chunk);
     }
   });
 
   deepgramConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
     const transcript = data.channel.alternatives[0].transcript;
     if (transcript && transcript.trim().length > 0) {
-      onTranscript(transcript);
+      // Pass both transcript and whether it's final
+      onTranscript(transcript, data.is_final);
     }
   });
 
   deepgramConnection.on(LiveTranscriptionEvents.Close, () => {
     console.log("🔌 Deepgram connection closed.");
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
   });
 
   deepgramConnection.on(LiveTranscriptionEvents.Error, (err) => {
@@ -59,7 +86,6 @@ export const sendAudioToDeepgram = (audioBlob) => {
     deepgramConnection.send(audioBlob);
   } else {
     // If connecting or closed, buffer the audio
-    // console.log("Queueing audio chunk..."); // (Optional: comment out to reduce noise)
     audioQueue.push(audioBlob);
   }
 };
@@ -67,10 +93,14 @@ export const sendAudioToDeepgram = (audioBlob) => {
 export const closeDeepgramSocket = () => {
   if (deepgramConnection) {
     console.log("🛑 Closing Deepgram socket...");
+    
+    // Clear keepalive first
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
+    
     deepgramConnection.finish();
-    // We do NOT set deepgramConnection = null here immediately, 
-    // we let the 'Close' event handle it, or the next startDeepgramSocket cleanup it.
-    // But for safety in React dev mode:
     deepgramConnection = null; 
     audioQueue = [];
   }
