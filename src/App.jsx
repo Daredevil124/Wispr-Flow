@@ -64,7 +64,7 @@ function App() {
 
   return (
     <div className="container">
-      <h1 className="title">SubSpace Voice Note</h1>
+      <h1 className="title">Voice-To-Text</h1>
       
       {/* Graceful Error Display for production readiness */}
       {errorMsg && (
