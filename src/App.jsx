@@ -10,31 +10,42 @@ function App() {
   const [errorMsg, setErrorMsg] = useState(null);
   const transcriptBoxRef = useRef(null);
 
+  /**
+   * Handles incoming transcripts.
+   * Separates finalized text (white) from interim guesses (gray).
+   */
   const handleNewTranscript = (newText, isFinal) => {
     if (isFinal) {
       setTranscript((prev) => {
         const updated = prev + " " + newText;
         return updated.trim();
       });
-      setInterimText("");
+      setInterimText(""); // Clear interim once finalized
     } else {
-      setInterimText(newText);
+      setInterimText(newText); // Show live "ghost" text
     }
   };
 
   const { isRecording, startRecording, stopRecording } = useAudioRecorder(
     handleNewTranscript,
-    (err) => setErrorMsg(err.message)
+    (err) => {
+        // Display user-friendly error messages in the UI
+        setErrorMsg(err.message || "An unexpected error occurred.");
+    }
   );
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(transcript);
+      // Copy both finalized and any pending interim text
+      const fullText = (transcript + " " + interimText).trim();
+      if (!fullText) return;
+
+      await navigator.clipboard.writeText(fullText);
       setCopyBtnText("Copied! ✅");
       setTimeout(() => setCopyBtnText("Copy Text"), 2000);
     } catch (err) {
       console.error("Failed to copy:", err);
-      setErrorMsg("Failed to copy text");
+      setErrorMsg("Failed to copy text to clipboard.");
     }
   };
 
@@ -44,7 +55,7 @@ function App() {
     setErrorMsg(null);
   };
 
-  // Auto-scroll to bottom when transcript updates
+  // Auto-scroll to bottom when transcript updates to keep latest text in view
   useEffect(() => {
     if (transcriptBoxRef.current) {
       transcriptBoxRef.current.scrollTop = transcriptBoxRef.current.scrollHeight;
@@ -55,22 +66,27 @@ function App() {
     <div className="container">
       <h1 className="title">SubSpace Voice Note</h1>
       
+      {/* Graceful Error Display for production readiness */}
       {errorMsg && (
-        <div className="error-banner">
+        <div className="error-banner" role="alert">
           ⚠️ {errorMsg}
+          <button className="close-error" onClick={() => setErrorMsg(null)}>×</button>
         </div>
       )}
 
       <div className="controls">
         <button
           className={`mic-button ${isRecording ? "recording" : ""}`}
+          // Use onMouseDown/Up for Push-to-Talk behavior
           onMouseDown={(e) => {
-            if (e.button !== 0) return; 
+            if (e.button !== 0) return; // Only allow Left Click
             startRecording();
           }}
           onMouseUp={stopRecording}
-          onMouseLeave={stopRecording}
+          onMouseLeave={stopRecording} // Safety: Stop if mouse drags off button
+          aria-label={isRecording ? "Release to stop recording" : "Hold to speak"}
         >
+          {/* SVG Icon for professional look */}
           <svg 
             className="mic-icon"
             width="24" 
@@ -99,7 +115,7 @@ function App() {
               <span className="interim-text">
                 {transcript && " "}
                 {interimText}
-                <span className="cursor"></span>
+                <span className="cursor"></span> {/* Visual typing cursor */}
               </span>
             )}
           </>
@@ -112,7 +128,7 @@ function App() {
         <button 
           className="btn-primary"
           onClick={handleCopy} 
-          disabled={!transcript}
+          disabled={!transcript && !interimText}
         >
           {copyBtnText}
         </button>
